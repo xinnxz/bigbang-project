@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>THE GENESIS ENGINE // Audio-Visual Core</title>
+
+    <style>
+      /* --- Cinematic UI Styles --- */
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+        height: 100vh;
+        font-family: "Roboto Mono", monospace;
+        user-select: none;
+      }
+
+      #canvas-container {
+        width: 100%;
+        height: 100%;
+        position: absolute;
+        z-index: 0;
+        cursor: crosshair; /* small UX tweak */
+      }
+
+      #ui-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 30px;
+        box-sizing: border-box;
+        color: rgba(255, 255, 255, 0.9);
+        z-index: 10;
+        background: radial-gradient(
+          circle at center,
+          transparent 0%,
+          rgba(0, 0, 0, 0.4) 100%
+        );
+        /* NEW: subtle parallax motion */
+        transition: transform 0.18s ease-out;
+      }
+
+      .header-ui {
+        text-transform: uppercase;
+        letter-spacing: 2px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 1.4rem;
+        color: #4da6ff;
+        text-shadow: 0 0 15px rgba(77, 166, 255, 0.5);
+      }
+
+      .stats {
+        font-size: 0.75rem;
+        opacity: 0.7;
+        margin-top: 5px;
+      }
+
+      .footer-ui {
+        text-align: center;
+        margin-bottom: 50px;
+        pointer-events: auto; /* Allow clicking the mute button if we added one */
+      }
+
+      #status-message {
+        font-size: 1.2rem;
+        font-weight: bold;
+        letter-spacing: 3px;
+        padding: 15px 30px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: rgba(0, 0, 0, 0.5);
+        display: inline-block;
+        transition: all 0.3s ease;
+      }
+
+      #audio-init {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        border: 1px solid #4da6ff;
+        padding: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        cursor: pointer;
+        pointer-events: auto;
+        z-index: 20;
+        text-align: center;
+      }
+
+      #audio-init:hover {
+        background: #4da6ff;
+        color: #000;
+      }
+
+      /* Dynamic UI colors */
+      .state-void {
+        color: #aaa;
+        border-color: #aaa;
+      }
+
+      .state-singularity {
+        color: #ff3300;
+        border-color: #ff3300;
+        box-shadow: 0 0 20px #ff3300;
+        animation: pulse 0.1s infinite alternate;
+      }
+
+      .state-ignition {
+        color: #ffffff;
+        border-color: #ffffff;
+        box-shadow: 0 0 50px #ffffff;
+      }
+
+      .state-galaxy {
+        color: #4da6ff;
+        border-color: #4da6ff;
+      }
+
+      @keyframes pulse {
+        from {
+          transform: scale(0.99);
+        }
+        to {
+          transform: scale(1.01);
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="canvas-container"></div>
+
+    <div id="audio-init">CLICK TO INITIALIZE AUDIO SYSTEMS</div>
+
+    <div id="ui-overlay" style="display: none">
+      <div class="header-ui">
+        <h1>// THE GENESIS ENGINE</h1>
+        <div class="stats">
+          AUDIO: Real-time Synthesis Active<br />
+          VISUALS: GPU Particle Physics
+        </div>
+      </div>
+      <div class="footer-ui">
+        <div id="status-message" class="state-void">
+          SYSTEM IDLE. CLICK & HOLD TO COMPRESS.
+        </div>
+      </div>
+    </div>
+
+    <script
+      async
+      src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"
+    ></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.154.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.154.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+      import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+      import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+
+      // ==================================================================================
+      // --- AUDIO ENGINE (WEB AUDIO API) ---
+      // ==================================================================================
+      const AudioEngine = {
+        ctx: null,
+        masterGain: null,
+        oscillators: [],
+        riserOsc: null,
+        riserGain: null,
+        droneOsc: null,
+
+        init: function () {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioContext();
+          this.masterGain = this.ctx.createGain();
+          this.masterGain.gain.value = 0.4; // Master volume
+          this.masterGain.connect(this.ctx.destination);
+          this.startDrone();
+        },
+
+        startDrone: function () {
+          // Deep space drone
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+
+          osc.type = "sawtooth";
+          osc.frequency.value = 40; // Low rumble
+          filter.type = "lowpass";
+          filter.frequency.value = 120;
+
+          osc.connect(filter);
+          filter.connect(gain);
+          gain.connect(this.masterGain);
+
+          gain.gain.value = 0.1;
+          osc.start();
+          this.droneOsc = { osc, gain, filter }; // Store to modulate later
+        },
+
+        startRiser: function () {
+          // The sound of compression
+          if (this.riserOsc) this.stopRiser();
+
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+
+          osc.type = "triangle";
+          osc.frequency.value = 50;
+
+          // LFO for "wobble"
+          const lfo = this.ctx.createOscillator();
+          lfo.frequency.value = 10;
+          const lfoGain = this.ctx.createGain();
+          lfoGain.gain.value = 20;
+          lfo.connect(lfoGain);
+          lfoGain.connect(osc.frequency);
+
+          osc.connect(gain);
+          gain.connect(this.masterGain);
+
+          gain.gain.setValueAtTime(0, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.3, this.ctx.currentTime + 1);
+
+          osc.start();
+          lfo.start();
+
+          this.riserOsc = osc;
+          this.riserGain = gain;
+          this.riserLfo = lfo;
+        },
+
+        modulateRiser: function (intensity) {
+          // Pitch goes up as we hold
+          if (this.riserOsc) {
+            const freq = 50 + intensity * 800;
+            this.riserOsc.frequency.setTargetAtTime(
+              freq,
+              this.ctx.currentTime,
+              0.1
+            );
+            this.riserLfo.frequency.value = 10 + intensity * 30;
+          }
+        },
+
+        stopRiser: function () {
+          if (this.riserOsc) {
+            this.riserOsc.stop();
+            this.riserLfo.stop();
+            this.riserOsc = null;
+          }
+        },
+
+        triggerExplosion: function () {
+          this.stopRiser();
+
+          // 1. White Noise Burst (The Crack)
+          const bufferSize = this.ctx.sampleRate * 2; // 2 seconds
+          const buffer = this.ctx.createBuffer(
+            1,
+            bufferSize,
+            this.ctx.sampleRate
+          );
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+          }
+          const noise = this.ctx.createBufferSource();
+          noise.buffer = buffer;
+          const noiseFilter = this.ctx.createBiquadFilter();
+          noiseFilter.type = "lowpass";
+          noiseFilter.frequency.value = 1000;
+          const noiseGain = this.ctx.createGain();
+          noiseGain.gain.setValueAtTime(1, this.ctx.currentTime);
+          noiseGain.gain.exponentialRampToValueAtTime(
+            0.01,
+            this.ctx.currentTime + 1.5
+          );
+
+          noise.connect(noiseFilter);
+          noiseFilter.connect(noiseGain);
+          noiseGain.connect(this.masterGain);
+          noise.start();
+
+          // 2. Sub-Bass Kick (The Thump)
+          const kick = this.ctx.createOscillator();
+          const kickGain = this.ctx.createGain();
+          kick.frequency.setValueAtTime(150, this.ctx.currentTime);
+          kick.frequency.exponentialRampToValueAtTime(
+            30,
+            this.ctx.currentTime + 0.5
+          );
+          kickGain.gain.setValueAtTime(1, this.ctx.currentTime);
+          kickGain.gain.exponentialRampToValueAtTime(
+            0.01,
+            this.ctx.currentTime + 1.5
+          );
+
+          kick.connect(kickGain);
+          kickGain.connect(this.masterGain);
+          kick.start();
+          kick.stop(this.ctx.currentTime + 1.5);
+        },
+
+        startGalaxyAmbience: function () {
+          // Ethereal chord
+          const freqs = [261.63, 329.63, 392.0, 523.25]; // C Major
+          freqs.forEach((f, i) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const pan = this.ctx.createStereoPanner();
+
+            osc.type = "sine";
+            osc.frequency.value = f;
+
+            pan.pan.value = -0.5 + Math.random(); // Spread sound
+
+            gain.gain.setValueAtTime(0, this.ctx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.05, this.ctx.currentTime + 2); // Slow fade in
+
+            osc.connect(pan);
+            pan.connect(gain);
+            gain.connect(this.masterGain);
+
+            osc.start();
+            this.oscillators.push({ osc, gain });
+          });
+        },
+
+        resetGalaxy: function () {
+          this.oscillators.forEach((o) => {
+            o.gain.gain.exponentialRampToValueAtTime(
+              0.001,
+              this.ctx.currentTime + 1
+            );
+            o.osc.stop(this.ctx.currentTime + 1);
+          });
+          this.oscillators = [];
+        },
+      };
+
+      // ==================================================================================
+      // --- SHADERS & THREE.JS SETUP ---
+      // ==================================================================================
+      const _VS = `
+            attribute float size;
+            attribute vec3 customColor;
+            varying vec3 vColor;
+            varying float vDistance;
+            void main() {
+                vColor = customColor;
+                vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+                vDistance = -mvPosition.z;
+                gl_PointSize = size * ( 300.0 / -mvPosition.z );
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `;
+      const _FS = `
+            uniform vec3 color;
+            varying vec3 vColor;
+            varying float vDistance;
+            void main() {
+                vec2 coord = gl_PointCoord - vec2(0.5); 
+                if (length(coord) > 0.5) discard;
+                float alpha = 1.0 - pow(length(coord) * 2.0, 1.5);
+                float fogFactor = smoothstep(100.0, 0.0, vDistance) * 0.5 + 0.5;
+                gl_FragColor = vec4( color * vColor * fogFactor, alpha );
+            }
+        `;
+
+      const CONFIG = {
+        PARTICLE_COUNT: 50000,
+        BASE_SIZE: 0.6,
+        GALAXY_RADIUS: 60,
+        GALAXY_ARMS: 5,
+        GALAXY_SPIN: 3.5,
+        IGNITION_FORCE: 150.0,
+        DRAG_COEFFICIENT: 0.965,
+        GRAVITY_STRENGTH: 0.04,
+      };
+
+      const STATES = { VOID: 0, SINGULARITY: 1, IGNITION: 2, GALAXY: 3 };
+
+      let currentState = STATES.VOID;
+      let scene, camera, renderer, composer, bloomPass;
+      let particleSystem, geometry, material;
+      let galaxyTargets = new Float32Array(CONFIG.PARTICLE_COUNT * 3);
+      let ignitionTime = 0;
+      const velocities = new Float32Array(CONFIG.PARTICLE_COUNT * 3);
+      const statusMsg = document.getElementById("status-message");
+
+      // NEW: references & mouse state
+      const uiOverlay = document.getElementById("ui-overlay");
+      const audioInitPanel = document.getElementById("audio-init");
+      const canvasContainer = document.getElementById("canvas-container");
+      const mouse = { x: 0, y: 0 }; // normalized -1..1
+
+      // --- INITIALIZATION FLOW ---
+      document
+        .getElementById("audio-init")
+        .addEventListener("click", function () {
+          AudioEngine.init();
+          this.style.display = "none";
+          document.getElementById("ui-overlay").style.display = "flex";
+          initThree();
+          animate();
+        });
+
+      function initThree() {
+        const container = document.getElementById("canvas-container");
+        scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x000000, 0.005);
+        camera = new THREE.PerspectiveCamera(
+          60,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          1000
+        );
+        camera.position.set(0, 20, 120);
+
+        renderer = new THREE.WebGLRenderer({ antialias: false, depth: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.toneMapping = THREE.ReinhardToneMapping;
+        renderer.toneMappingExposure = 2.0;
+        container.appendChild(renderer.domElement);
+
+        const renderScene = new RenderPass(scene, camera);
+        bloomPass = new UnrealBloomPass(
+          new THREE.Vector2(window.innerWidth, window.innerHeight),
+          1.5,
+          0.4,
+          0.85
+        );
+        bloomPass.threshold = 0.1;
+        bloomPass.strength = 2.5;
+        bloomPass.radius = 0.55;
+        composer = new EffectComposer(renderer);
+        composer.addPass(renderScene);
+        composer.addPass(bloomPass);
+
+        createParticles();
+        generateGalaxyTargets();
+
+        window.addEventListener("resize", onWindowResize);
+        document.addEventListener("mousedown", onMouseDown);
+        document.addEventListener("mouseup", onMouseUp);
+
+        // NEW: mouse tracking
+        document.addEventListener("pointermove", onPointerMove);
+      }
+
+      function createParticles() {
+        geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(CONFIG.PARTICLE_COUNT * 3);
+        const colors = new Float32Array(CONFIG.PARTICLE_COUNT * 3);
+        const sizes = new Float32Array(CONFIG.PARTICLE_COUNT);
+        const colorObj = new THREE.Color();
+
+        for (let i = 0; i < CONFIG.PARTICLE_COUNT; i++) {
+          const i3 = i * 3;
+          const r = Math.random() * 200 + 50;
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.acos(Math.random() * 2 - 1);
+          positions[i3] = r * Math.sin(phi) * Math.cos(theta);
+          positions[i3 + 1] = r * Math.sin(phi) * Math.sin(theta) * 0.1;
+          positions[i3 + 2] = r * Math.cos(phi);
+          velocities[i3] = (Math.random() - 0.5) * 0.1;
+          velocities[i3 + 1] = (Math.random() - 0.5) * 0.1;
+          velocities[i3 + 2] = (Math.random() - 0.5) * 0.1;
+          colorObj.setHSL(
+            0.6 + Math.random() * 0.2,
+            0.5,
+            0.3 + Math.random() * 0.4
+          );
+          colors[i3] = colorObj.r;
+          colors[i3 + 1] = colorObj.g;
+          colors[i3 + 2] = colorObj.b;
+          sizes[i] = CONFIG.BASE_SIZE * (Math.random() * 0.8 + 0.2);
+        }
+        geometry.setAttribute(
+          "position",
+          new THREE.BufferAttribute(positions, 3)
+        );
+        geometry.setAttribute(
+          "customColor",
+          new THREE.BufferAttribute(colors, 3)
+        );
+        geometry.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
+        material = new THREE.ShaderMaterial({
+          uniforms: { color: { value: new THREE.Color(0xffffff) } },
+          vertexShader: _VS,
+          fragmentShader: _FS,
+          blending: THREE.AdditiveBlending,
+          depthTest: false,
+          transparent: true,
+          vertexColors: true,
+        });
+        particleSystem = new THREE.Points(geometry, material);
+        scene.add(particleSystem);
+      }
+
+      function generateGalaxyTargets() {
+        for (let i = 0; i < CONFIG.PARTICLE_COUNT; i++) {
+          const i3 = i * 3;
+          const armIndex = i % CONFIG.GALAXY_ARMS;
+          const radius = Math.pow(Math.random(), 1.5) * CONFIG.GALAXY_RADIUS;
+          const spinOffset = radius * CONFIG.GALAXY_SPIN;
+          const armAngleOffset = (armIndex / CONFIG.GALAXY_ARMS) * Math.PI * 2;
+          const finalAngle = spinOffset + armAngleOffset;
+          galaxyTargets[i3] =
+            Math.cos(finalAngle) * radius + (Math.random() - 0.5) * 1.5;
+          const heightThickness = 1.0 - radius / CONFIG.GALAXY_RADIUS;
+          galaxyTargets[i3 + 1] =
+            (Math.random() - 0.5) * (8 * heightThickness * heightThickness);
+          galaxyTargets[i3 + 2] =
+            Math.sin(finalAngle) * radius + (Math.random() - 0.5) * 1.5;
+        }
+      }
+
+      // --- INTERACTIONS ---
+      function onMouseDown(e) {
+        if (e.button !== 0) return;
+        if (currentState === STATES.VOID || currentState === STATES.GALAXY) {
+          currentState = STATES.SINGULARITY;
+          updateUI(STATES.SINGULARITY);
+          bloomPass.strength = 4.0;
+          bloomPass.radius = 0.1;
+          // Audio
+          AudioEngine.resetGalaxy();
+          AudioEngine.startRiser();
+        }
+      }
+
+      function onMouseUp(e) {
+        if (e.button !== 0) return;
+        if (currentState === STATES.SINGULARITY) {
+          triggerIgnition();
+        }
+      }
+
+      // NEW: pointer move handler
+      function onPointerMove(e) {
+        const nx = (e.clientX / window.innerWidth) * 2 - 1;
+        const ny = (e.clientY / window.innerHeight) * 2 - 1;
+        mouse.x = nx;
+        mouse.y = ny;
+
+        // Parallax on UI HUD
+        if (uiOverlay) {
+          const uiOffsetX = nx * 12; // px
+          const uiOffsetY = ny * 8; // px
+          uiOverlay.style.transform = `translate3d(${uiOffsetX}px, ${uiOffsetY}px, 0)`;
+        }
+      }
+
+      function triggerIgnition() {
+        currentState = STATES.IGNITION;
+        updateUI(STATES.IGNITION);
+        ignitionTime = Date.now();
+        bloomPass.strength = 8.0;
+        bloomPass.radius = 1.5;
+
+        // Audio
+        AudioEngine.triggerExplosion();
+
+        const positions = geometry.attributes.position.array;
+        const colors = geometry.attributes.customColor.array;
+        for (let i = 0; i < CONFIG.PARTICLE_COUNT; i++) {
+          const i3 = i * 3;
+          positions[i3] = (Math.random() - 0.5) * 0.1;
+          positions[i3 + 1] = (Math.random() - 0.5) * 0.1;
+          positions[i3 + 2] = (Math.random() - 0.5) * 0.1;
+          let vx = Math.random() - 0.5;
+          let vy = (Math.random() - 0.5) * 0.3;
+          let vz = Math.random() - 0.5;
+          const len = Math.sqrt(vx * vx + vy * vy + vz * vz);
+          const forceVariation = Math.random() * 0.8 + 0.2;
+          velocities[i3] = (vx / len) * CONFIG.IGNITION_FORCE * forceVariation;
+          velocities[i3 + 1] =
+            (vy / len) * CONFIG.IGNITION_FORCE * forceVariation;
+          velocities[i3 + 2] =
+            (vz / len) * CONFIG.IGNITION_FORCE * forceVariation;
+          colors[i3] = 1.0;
+          colors[i3 + 1] = 1.0;
+          colors[i3 + 2] = 1.0;
+        }
+
+        setTimeout(() => {
+          if (currentState === STATES.IGNITION) {
+            currentState = STATES.GALAXY;
+            updateUI(STATES.GALAXY);
+            bloomPass.strength = 2.0;
+            bloomPass.radius = 0.6;
+            AudioEngine.startGalaxyAmbience();
+          }
+        }, 4000);
+      }
+
+      function updateUI(state) {
+        statusMsg.className = "";
+        switch (state) {
+          case STATES.SINGULARITY:
+            statusMsg.innerText = "CRITICAL: COMPRESSING...";
+            statusMsg.classList.add("state-singularity");
+            break;
+          case STATES.IGNITION:
+            statusMsg.innerText = "EXPANSION DETECTED";
+            statusMsg.classList.add("state-ignition");
+            break;
+          case STATES.GALAXY:
+            statusMsg.innerText = "GALAXY STABLE";
+            statusMsg.classList.add("state-galaxy");
+            break;
+          default:
+            statusMsg.innerText = "SYSTEM IDLE";
+            statusMsg.classList.add("state-void");
+        }
+      }
+
+      // --- ANIMATION LOOP ---
+      function animate() {
+        requestAnimationFrame(animate);
+        const time = Date.now() * 0.001;
+        const positions = geometry.attributes.position.array;
+        const colors = geometry.attributes.customColor.array;
+        const colorObj = new THREE.Color();
+
+        if (currentState === STATES.SINGULARITY) {
+          // Calculate average compression for audio modulation
+          let totalDist = 0;
+
+          for (let i = 0; i < CONFIG.PARTICLE_COUNT * 3; i += 3) {
+            positions[i] *= 0.85;
+            positions[i + 1] *= 0.85;
+            positions[i + 2] *= 0.85;
+            totalDist += Math.abs(positions[i]); // rough approximation
+
+            colors[i] = Math.min(colors[i] + 0.05, 1.0);
+            colors[i + 1] = Math.min(colors[i + 1] + 0.04, 0.9);
+            colors[i + 2] = Math.min(colors[i + 2] + 0.02, 0.8);
+          }
+          camera.position.x += (Math.random() - 0.5) * 0.2;
+          camera.position.y += (Math.random() - 0.5) * 0.2;
+
+          // Modulate Audio Pitch based on tightness
+          AudioEngine.modulateRiser(1.0 - Math.min(totalDist, 1.0));
+        } else if (currentState === STATES.IGNITION) {
+          for (let i = 0; i < CONFIG.PARTICLE_COUNT; i++) {
+            const i3 = i * 3;
+            positions[i3] += velocities[i3] * 0.016;
+            positions[i3 + 1] += velocities[i3 + 1] * 0.016;
+            positions[i3 + 2] += velocities[i3 + 2] * 0.016;
+            velocities[i3] *= CONFIG.DRAG_COEFFICIENT;
+            velocities[i3 + 1] *= CONFIG.DRAG_COEFFICIENT;
+            velocities[i3 + 2] *= CONFIG.DRAG_COEFFICIENT;
+
+            const speed = Math.sqrt(
+              velocities[i3] ** 2 + velocities[i3 + 2] ** 2
+            );
+            const normalizedSpeed = Math.min(speed / 5.0, 1.0);
+            colorObj.setHSL(
+              0.6 - normalizedSpeed * 0.5,
+              0.8,
+              0.2 + normalizedSpeed * 0.8
+            );
+            colors[i3] = colorObj.r;
+            colors[i3 + 1] = colorObj.g;
+            colors[i3 + 2] = colorObj.b;
+          }
+          bloomPass.strength = Math.max(2.0, bloomPass.strength * 0.95);
+        } else if (currentState === STATES.GALAXY) {
+          for (let i = 0; i < CONFIG.PARTICLE_COUNT; i++) {
+            const i3 = i * 3;
+            let dx = galaxyTargets[i3] - positions[i3];
+            let dy = galaxyTargets[i3 + 1] - positions[i3 + 1];
+            let dz = galaxyTargets[i3 + 2] - positions[i3 + 2];
+            velocities[i3] += dx * CONFIG.GRAVITY_STRENGTH * 0.01;
+            velocities[i3 + 1] += dy * CONFIG.GRAVITY_STRENGTH * 0.01;
+            velocities[i3 + 2] += dz * CONFIG.GRAVITY_STRENGTH * 0.01;
+            velocities[i3] *= 0.92;
+            velocities[i3 + 1] *= 0.92;
+            velocities[i3 + 2] *= 0.92;
+            positions[i3] += velocities[i3];
+            positions[i3 + 1] += velocities[i3 + 1];
+            positions[i3 + 2] += velocities[i3 + 2];
+
+            const dist = Math.sqrt(positions[i3] ** 2 + positions[i3 + 2] ** 2);
+            const distNorm = Math.min(dist / CONFIG.GALAXY_RADIUS, 1.0);
+            colorObj.setHSL(0.6 + distNorm * 0.1, 0.6, 0.7 - distNorm * 0.4);
+            colors[i3] = colorObj.r;
+            colors[i3 + 1] = colorObj.g;
+            colors[i3 + 2] = colorObj.b;
+          }
+        } else {
+          particleSystem.rotation.y = time * 0.02;
+        }
+
+        if (currentState !== STATES.SINGULARITY)
+          particleSystem.rotation.y += 0.0005;
+
+        // NEW: particle parallax rotation based on mouse
+        particleSystem.rotation.x +=
+          (mouse.y * 0.4 - particleSystem.rotation.x) * 0.03;
+        particleSystem.rotation.y +=
+          (mouse.x * 0.6 - particleSystem.rotation.y) * 0.03;
+
+        geometry.attributes.position.needsUpdate = true;
+        geometry.attributes.customColor.needsUpdate = true;
+
+        const camTime = time * 0.2;
+        camera.position.x = Math.sin(camTime) * 30;
+        camera.position.z = Math.cos(camTime * 0.7) * 120 + 20;
+
+        // NEW: camera follows mouse slightly
+        camera.position.x += mouse.x * 25;
+        camera.position.y = 20 + mouse.y * -10;
+
+        camera.lookAt(0, 0, 0);
+        composer.render();
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        composer.setSize(window.innerWidth, window.innerHeight);
+      }
+    </script>
+  </body>
+</html>
