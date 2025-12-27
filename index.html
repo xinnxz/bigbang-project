@@ -203,6 +203,139 @@
         100% { transform: translateY(-100vh) scale(1); opacity: 0; }
       }
 
+      /* ===== AUDIO VISUALIZER ===== */
+      #audio-visualizer {
+        position: fixed;
+        bottom: 30px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 400px;
+        height: 80px;
+        z-index: 50;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.5s ease;
+      }
+      
+      #audio-visualizer.active {
+        opacity: 0.8;
+      }
+      
+      /* ===== ENHANCED HUD ===== */
+      #hud {
+        position: fixed;
+        top: 30px;
+        right: 30px;
+        font-family: 'Roboto Mono', monospace;
+        font-size: 0.7rem;
+        color: rgba(77, 166, 255, 0.8);
+        text-align: right;
+        z-index: 100;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.5s ease;
+      }
+      
+      #hud.active {
+        opacity: 1;
+      }
+      
+      .hud-row {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        margin-bottom: 8px;
+        gap: 10px;
+      }
+      
+      .hud-label {
+        color: rgba(255, 255, 255, 0.4);
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        font-size: 0.6rem;
+      }
+      
+      .hud-value {
+        color: rgba(77, 166, 255, 1);
+        font-weight: 500;
+        min-width: 60px;
+        text-align: right;
+      }
+      
+      .hud-value.warning {
+        color: #ffaa00;
+      }
+      
+      .hud-value.critical {
+        color: #ff3300;
+        animation: hud-pulse 0.5s infinite alternate;
+      }
+      
+      @keyframes hud-pulse {
+        from { opacity: 0.7; }
+        to { opacity: 1; }
+      }
+      
+      .intensity-bar {
+        width: 80px;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      
+      .intensity-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #4da6ff, #00ffff);
+        border-radius: 2px;
+        transition: width 0.1s ease, background 0.3s ease;
+      }
+      
+      .intensity-fill.high {
+        background: linear-gradient(90deg, #ffaa00, #ff6600);
+      }
+      
+      .intensity-fill.critical {
+        background: linear-gradient(90deg, #ff3300, #ff0066);
+      }
+      
+      /* ===== STATE INDICATOR ===== */
+      .state-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      
+      .state-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #4da6ff;
+        box-shadow: 0 0 10px currentColor;
+        transition: background 0.3s ease, box-shadow 0.3s ease;
+      }
+      
+      .state-dot.void { background: #666; box-shadow: none; }
+      .state-dot.singularity { 
+        background: #ff3300; 
+        box-shadow: 0 0 15px #ff3300;
+        animation: state-pulse 0.2s infinite alternate;
+      }
+      .state-dot.ignition { 
+        background: #ffffff; 
+        box-shadow: 0 0 20px #ffffff;
+      }
+      .state-dot.galaxy { 
+        background: #4da6ff; 
+        box-shadow: 0 0 10px #4da6ff;
+      }
+      
+      @keyframes state-pulse {
+        from { transform: scale(1); }
+        to { transform: scale(1.3); }
+      }
+
       #ui-overlay {
         position: absolute;
         top: 0;
@@ -346,6 +479,34 @@
       <div class="footer-ui">
         <div id="status-message" class="state-void">
           SYSTEM IDLE. CLICK & HOLD TO COMPRESS.
+        </div>
+      </div>
+    </div>
+
+    <!-- AUDIO VISUALIZER -->
+    <canvas id="audio-visualizer"></canvas>
+
+    <!-- ENHANCED HUD -->
+    <div id="hud">
+      <div class="hud-row">
+        <span class="hud-label">PARTICLES</span>
+        <span class="hud-value" id="hud-particles">50,000</span>
+      </div>
+      <div class="hud-row">
+        <span class="hud-label">FPS</span>
+        <span class="hud-value" id="hud-fps">60</span>
+      </div>
+      <div class="hud-row">
+        <span class="hud-label">STATE</span>
+        <div class="state-indicator">
+          <div class="state-dot void" id="state-dot"></div>
+          <span class="hud-value" id="hud-state">VOID</span>
+        </div>
+      </div>
+      <div class="hud-row">
+        <span class="hud-label">INTENSITY</span>
+        <div class="intensity-bar">
+          <div class="intensity-fill" id="intensity-fill"></div>
         </div>
       </div>
     </div>
@@ -511,10 +672,152 @@
         }
       };
       
+      // ==================================================================================
+      // --- AUDIO VISUALIZER CONTROLLER ---
+      // ==================================================================================
+      const AudioVisualizer = {
+        canvas: null,
+        ctx: null,
+        isActive: false,
+        
+        init() {
+          this.canvas = document.getElementById('audio-visualizer');
+          this.ctx = this.canvas.getContext('2d');
+          this.resize();
+          window.addEventListener('resize', () => this.resize());
+        },
+        
+        resize() {
+          this.canvas.width = 400;
+          this.canvas.height = 80;
+        },
+        
+        activate() {
+          this.isActive = true;
+          this.canvas.classList.add('active');
+        },
+        
+        deactivate() {
+          this.isActive = false;
+          this.canvas.classList.remove('active');
+        },
+        
+        draw(frequencyData, intensity = 0) {
+          if (!this.isActive || !frequencyData) return;
+          
+          const { width, height } = this.canvas;
+          this.ctx.clearRect(0, 0, width, height);
+          
+          // Number of bars to draw
+          const barCount = 64;
+          const barWidth = (width / barCount) - 1;
+          const dataStep = Math.floor(frequencyData.length / barCount);
+          
+          for (let i = 0; i < barCount; i++) {
+            const dataIndex = i * dataStep;
+            const value = frequencyData[dataIndex] || 0;
+            const barHeight = (value / 255) * height;
+            
+            // Calculate color based on frequency and intensity
+            const hue = 200 + (i / barCount) * 60 + intensity * 30;
+            const saturation = 70 + intensity * 30;
+            const lightness = 40 + (value / 255) * 30;
+            
+            // Gradient effect
+            const gradient = this.ctx.createLinearGradient(0, height, 0, height - barHeight);
+            gradient.addColorStop(0, `hsla(${hue}, ${saturation}%, ${lightness}%, 0.8)`);
+            gradient.addColorStop(1, `hsla(${hue + 20}, ${saturation}%, ${lightness + 20}%, 0.4)`);
+            
+            this.ctx.fillStyle = gradient;
+            this.ctx.fillRect(
+              i * (barWidth + 1),
+              height - barHeight,
+              barWidth,
+              barHeight
+            );
+            
+            // Add glow on high values
+            if (value > 180) {
+              this.ctx.shadowBlur = 10;
+              this.ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
+            } else {
+              this.ctx.shadowBlur = 0;
+            }
+          }
+        }
+      };
+      
+      // ==================================================================================
+      // --- HUD CONTROLLER ---
+      // ==================================================================================
+      const HUDController = {
+        hud: null,
+        fpsEl: null,
+        particlesEl: null,
+        stateEl: null,
+        stateDot: null,
+        intensityFill: null,
+        lastTime: performance.now(),
+        frameCount: 0,
+        fps: 60,
+        
+        init() {
+          this.hud = document.getElementById('hud');
+          this.fpsEl = document.getElementById('hud-fps');
+          this.particlesEl = document.getElementById('hud-particles');
+          this.stateEl = document.getElementById('hud-state');
+          this.stateDot = document.getElementById('state-dot');
+          this.intensityFill = document.getElementById('intensity-fill');
+        },
+        
+        activate() {
+          this.hud.classList.add('active');
+        },
+        
+        updateFPS() {
+          this.frameCount++;
+          const now = performance.now();
+          const delta = now - this.lastTime;
+          
+          if (delta >= 1000) {
+            this.fps = Math.round((this.frameCount * 1000) / delta);
+            this.frameCount = 0;
+            this.lastTime = now;
+            
+            this.fpsEl.textContent = this.fps;
+            this.fpsEl.className = 'hud-value';
+            if (this.fps < 30) {
+              this.fpsEl.classList.add('critical');
+            } else if (this.fps < 50) {
+              this.fpsEl.classList.add('warning');
+            }
+          }
+        },
+        
+        updateState(stateName) {
+          this.stateEl.textContent = stateName;
+          this.stateDot.className = 'state-dot ' + stateName.toLowerCase();
+        },
+        
+        updateIntensity(value) {
+          const percent = Math.min(value * 100, 100);
+          this.intensityFill.style.width = percent + '%';
+          
+          this.intensityFill.className = 'intensity-fill';
+          if (value > 0.8) {
+            this.intensityFill.classList.add('critical');
+          } else if (value > 0.5) {
+            this.intensityFill.classList.add('high');
+          }
+        }
+      };
+      
       // Initialize on DOM ready
       document.addEventListener('DOMContentLoaded', () => {
         LoaderController.init();
         CursorController.init();
+        AudioVisualizer.init();
+        HUDController.init();
       });
     </script>
 
@@ -767,31 +1070,115 @@
       };
 
       // ==================================================================================
-      // --- SHADERS & THREE.JS SETUP ---
+      // --- ADVANCED NEBULA SHADERS ---
       // ==================================================================================
       const _VS = `
+            uniform float uTime;
+            uniform float uIntensity;
+            
             attribute float size;
             attribute vec3 customColor;
+            
             varying vec3 vColor;
             varying float vDistance;
+            varying float vSize;
+            varying float vIntensity;
+            
             void main() {
                 vColor = customColor;
-                vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+                vIntensity = uIntensity;
+                
+                // Add subtle vertex animation based on time
+                vec3 pos = position;
+                float wave = sin(pos.x * 0.05 + uTime) * cos(pos.z * 0.05 + uTime * 0.7);
+                pos.y += wave * uIntensity * 2.0;
+                
+                vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
                 vDistance = -mvPosition.z;
-                gl_PointSize = size * ( 300.0 / -mvPosition.z );
+                
+                // Dynamic size based on intensity and distance
+                float dynamicSize = size * (1.0 + uIntensity * 0.5);
+                vSize = dynamicSize;
+                gl_PointSize = dynamicSize * (300.0 / -mvPosition.z);
                 gl_Position = projectionMatrix * mvPosition;
             }
         `;
+      
       const _FS = `
             uniform vec3 color;
+            uniform float uTime;
+            uniform float uIntensity;
+            
             varying vec3 vColor;
             varying float vDistance;
+            varying float vSize;
+            varying float vIntensity;
+            
+            // Simplex noise function for organic shapes
+            vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+            
+            float snoise(vec2 v) {
+                const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                         -0.577350269189626, 0.024390243902439);
+                vec2 i  = floor(v + dot(v, C.yy));
+                vec2 x0 = v - i + dot(i, C.xx);
+                vec2 i1;
+                i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+                vec4 x12 = x0.xyxy + C.xxzz;
+                x12.xy -= i1;
+                i = mod289(i);
+                vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0))
+                    + i.x + vec3(0.0, i1.x, 1.0));
+                vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy),
+                    dot(x12.zw,x12.zw)), 0.0);
+                m = m*m;
+                m = m*m;
+                vec3 x = 2.0 * fract(p * C.www) - 1.0;
+                vec3 h = abs(x) - 0.5;
+                vec3 ox = floor(x + 0.5);
+                vec3 a0 = x - ox;
+                m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+                vec3 g;
+                g.x = a0.x * x0.x + h.x * x0.y;
+                g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+                return 130.0 * dot(m, g);
+            }
+            
             void main() {
-                vec2 coord = gl_PointCoord - vec2(0.5); 
-                if (length(coord) > 0.5) discard;
-                float alpha = 1.0 - pow(length(coord) * 2.0, 1.5);
-                float fogFactor = smoothstep(100.0, 0.0, vDistance) * 0.5 + 0.5;
-                gl_FragColor = vec4( color * vColor * fogFactor, alpha );
+                vec2 coord = gl_PointCoord - vec2(0.5);
+                float r = length(coord) * 2.0;
+                
+                // Organic nebula shape using noise
+                float noiseVal = snoise(coord * 4.0 + uTime * 0.5) * 0.3;
+                float organicRadius = r + noiseVal * (1.0 - r) * vIntensity;
+                
+                // Discard outside organic boundary
+                if (organicRadius > 1.0) discard;
+                
+                // Multi-layer glow effect
+                float innerGlow = exp(-organicRadius * organicRadius * 3.0);
+                float outerGlow = exp(-r * r * 1.5) * 0.5;
+                float glow = innerGlow + outerGlow;
+                
+                // Add sparkle effect
+                float sparkle = snoise(coord * 20.0 + uTime * 2.0);
+                sparkle = pow(max(sparkle, 0.0), 3.0) * 0.3 * vIntensity;
+                
+                // Distance fog
+                float fogFactor = smoothstep(150.0, 20.0, vDistance) * 0.7 + 0.3;
+                
+                // Dynamic color enhancement
+                vec3 enhancedColor = vColor;
+                enhancedColor += vec3(0.1, 0.05, 0.15) * vIntensity; // Add purple tint during intensity
+                enhancedColor += vec3(sparkle * 0.5); // Add sparkle brightness
+                
+                // Core brightness boost
+                float coreBrightness = 1.0 + innerGlow * vIntensity * 2.0;
+                
+                float alpha = (glow + sparkle) * fogFactor;
+                gl_FragColor = vec4(color * enhancedColor * coreBrightness * fogFactor, alpha);
             }
         `;
 
@@ -828,6 +1215,10 @@
         .addEventListener("click", function () {
           // Hide loading screen
           LoaderController.hide();
+          
+          // Activate HUD and Visualizer
+          HUDController.activate();
+          AudioVisualizer.activate();
           
           AudioEngine.init();
           this.style.display = "none";
@@ -936,7 +1327,11 @@
         );
         geometry.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
         material = new THREE.ShaderMaterial({
-          uniforms: { color: { value: new THREE.Color(0xffffff) } },
+          uniforms: { 
+            color: { value: new THREE.Color(0xffffff) },
+            uTime: { value: 0.0 },
+            uIntensity: { value: 0.0 }
+          },
           vertexShader: _VS,
           fragmentShader: _FS,
           blending: THREE.AdditiveBlending,
@@ -1067,12 +1462,51 @@
       }
 
       // --- ANIMATION LOOP ---
+      let shaderIntensity = 0.0;
+      
       function animate() {
         requestAnimationFrame(animate);
         const time = Date.now() * 0.001;
         const positions = geometry.attributes.position.array;
         const colors = geometry.attributes.customColor.array;
         const colorObj = new THREE.Color();
+        
+        // Update shader uniforms
+        material.uniforms.uTime.value = time;
+        
+        // Calculate target intensity based on state
+        let targetIntensity = 0.0;
+        if (currentState === STATES.SINGULARITY) {
+          targetIntensity = 1.0;
+        } else if (currentState === STATES.IGNITION) {
+          targetIntensity = 1.5;
+        } else if (currentState === STATES.GALAXY) {
+          targetIntensity = 0.3;
+        }
+        
+        // Smooth interpolation of intensity
+        shaderIntensity += (targetIntensity - shaderIntensity) * 0.05;
+        material.uniforms.uIntensity.value = shaderIntensity;
+        
+        // Update HUD
+        HUDController.updateFPS();
+        HUDController.updateIntensity(shaderIntensity);
+        
+        // Update state name in HUD
+        const stateNames = ['VOID', 'SINGULARITY', 'IGNITION', 'GALAXY'];
+        HUDController.updateState(stateNames[currentState]);
+        
+        // Draw audio visualizer (placeholder - would need real audio data)
+        // For now, generate pseudo-random visualization based on state
+        const fakeAudioData = new Uint8Array(64);
+        for (let i = 0; i < 64; i++) {
+          const baseValue = Math.sin(time * 2 + i * 0.2) * 50 + 50;
+          const stateBoost = currentState === STATES.SINGULARITY ? 80 : 
+                             currentState === STATES.IGNITION ? 150 :
+                             currentState === STATES.GALAXY ? 40 : 20;
+          fakeAudioData[i] = Math.min(255, baseValue + Math.random() * stateBoost);
+        }
+        AudioVisualizer.draw(fakeAudioData, shaderIntensity);
 
         if (currentState === STATES.SINGULARITY) {
           // Calculate average compression for audio modulation
